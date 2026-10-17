@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Your Architect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sb-top">
+        <button class="brand" data-nav="home" title="Home">
+          <span class="brand-mark"><svg viewBox="0 0 24 24"><path d="M4 20V9l8-5 8 5v11" /><path d="M9 20v-6h6v6" /></svg></span>
+          <span class="brand-name">Your Architect</span>
+        </button>
+        <button class="icon-btn" id="collapseBtn" title="Collapse sidebar">
+          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 4v16" /></svg>
+        </button>
+      </div>
+
+      <button class="new-btn" data-nav="home">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
+        <span>New project</span>
+        <kbd>Ctrl N</kbd>
+      </button>
+
+      <div class="sb-search">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" /><path d="m20 20-4.5-4.5" /></svg>
+        <input id="searchInput" placeholder="Search projects" />
+      </div>
+
+      <nav class="sb-nav">
+        <button class="sb-link" data-nav="projects">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
+          <span>All projects</span>
+        </button>
+        <button class="sb-link" data-nav="library">
+          <svg viewBox="0 0 24 24"><path d="M4 5h6v14H4zM14 5l6 1.5-3 13-6-1.5z" /></svg>
+          <span>Library</span>
+        </button>
+        <button class="sb-link" data-nav="references">
+          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="2" /><path d="m21 17-5-5-9 8" /></svg>
+          <span>Reference boards</span>
+        </button>
+      </nav>
+
+      <div class="sb-scroll" id="projectGroups"></div>
+
+      <div class="sb-foot">
+        <div class="usage">
+          <div class="usage-row"><span>Studio plan</span><span class="muted" id="usageText">62% used</span></div>
+          <div class="bar"><i style="width:62%"></i></div>
+        </div>
+        <button class="user">
+          <span class="avatar">RS</span>
+          <span class="user-meta"><b>Student</b><small>B.Arch · IIT Kharagpur</small></span>
+          <svg viewBox="0 0 24 24"><path d="m8 10 4 4 4-4" /></svg>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main" id="main"></main>
+
+    <!-- Right panel -->
+    <aside class="panel" id="panel"></aside>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
