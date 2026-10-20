@@ -1,4 +1,4 @@
-/* Your Architect — UI prototype (front-end only, all data is mock). */
+/* Your Architect — UI prototype. File uploads are real (saved by server.py); everything else is mock. */
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -46,8 +46,116 @@ const PROJECTS = [
 ];
 const GROUPS = ['Studio', 'Thesis', 'Competitions'];
 
-const state = { view: 'home', project: null, panel: false, panelTab: 'phases', tab: 'All', attached: [] };
+const state = { view: 'home', project: null, panel: false, panelTab: 'phases', tab: 'All', attached: [], draftId: null };
 const threads = {}; // project id → DOM node (keeps animations alive while switching)
+
+/* ---------------- uploads (real, via server.py) ---------------- */
+const EXTS = ['pdf', 'dwg', 'dxf', 'skp', '3dm', 'rvt', 'ifc', 'blend', 'obj', 'fbx', 'stl', 'glb', 'gltf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'tif', 'tiff', 'heic', 'bmp', 'svg', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'ppt', 'pptx', 'txt', 'md', 'rtf', 'kml', 'kmz', 'geojson', 'zip'];
+const MAX_BYTES = 2 * 1024 ** 3;
+const IMG_EXTS = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'tif', 'tiff', 'heic', 'bmp', 'svg'];
+const extOf = (name) => (name.includes('.') ? name.split('.').pop().toLowerCase() : '');
+function fileKind(name) {
+  const x = extOf(name);
+  if (x === 'pdf') return ['PDF', 'pdf'];
+  if (x === 'dwg' || x === 'dxf') return [x.toUpperCase(), 'dxf'];
+  if (IMG_EXTS.includes(x)) return ['IMG', 'img'];
+  return [(x || 'FILE').toUpperCase().slice(0, 4), 'md'];
+}
+function fmtSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024 ** 2) return Math.round(b / 1024) + ' KB';
+  if (b < 1024 ** 3) return (b / 1024 ** 2).toFixed(1) + ' MB';
+  return (b / 1024 ** 3).toFixed(2) + ' GB';
+}
+const fmtDate = (iso) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+function pickFiles(onFiles) {
+  const i = document.createElement('input');
+  i.type = 'file'; i.multiple = true; i.accept = EXTS.map((x) => '.' + x).join(',');
+  i.onchange = () => onFiles([...i.files]);
+  i.click();
+}
+
+/* Uploads each file to uploads/<project>/ and returns one live item per file.
+   item.done resolves when that file finishes (status 'done', 'error' or 'aborted'). */
+function startUploads(project, files, onChange) {
+  return files.map((file) => {
+    const f = { name: file.name, size: file.size, status: 'uploading', pct: 0 };
+    const fail = (msg) => { f.status = 'error'; f.error = msg; onChange(f); };
+    f.done = new Promise((res) => {
+      if (!EXTS.includes(extOf(file.name))) { f.status = 'error'; f.error = 'File type not supported'; return res(f); }
+      if (file.size > MAX_BYTES) { f.status = 'error'; f.error = 'Larger than 2 GB'; return res(f); }
+      const x = new XMLHttpRequest(); f.xhr = x;
+      x.open('POST', `/api/upload?project=${encodeURIComponent(project)}&name=${encodeURIComponent(file.name)}`);
+      x.upload.onprogress = (e) => { if (e.lengthComputable) { f.pct = (e.loaded / e.total) * 100; onChange(f); } };
+      x.onload = () => {
+        let r = {}; try { r = JSON.parse(x.responseText); } catch { /* non-JSON error page */ }
+        if (x.status === 201 && r.file) { Object.assign(f, r.file, { status: 'done', pct: 100 }); onChange(f); }
+        else fail(r.error || ([404, 405, 501].includes(x.status) ? 'Run python server.py to upload' : `Upload failed (${x.status})`));
+        res(f);
+      };
+      x.onerror = () => { fail('Server not reachable'); res(f); };
+      x.onabort = () => { f.status = 'aborted'; res(f); };
+      x.send(file);
+    });
+    return f;
+  });
+}
+
+async function deleteUpload(f) {
+  const r = await fetch(`/api/files?project=${encodeURIComponent(f.project)}&name=${encodeURIComponent(f.name)}`, { method: 'DELETE' });
+  if (!r.ok) throw new Error('Delete failed');
+}
+async function listUploads(project) {
+  const r = await fetch('/api/files' + (project ? `?project=${encodeURIComponent(project)}` : ''));
+  if (!r.ok) throw new Error('Server not reachable');
+  return (await r.json()).files;
+}
+
+function fileChip(f, onRemove) {
+  const k = fileKind(f.name);
+  const c = el(`<span class="file-chip"><span class="fi ${k[1]}">${k[0]}</span><span class="fc-t"><span class="fc-n"></span><small></small></span>${onRemove ? `<button class="fc-x" title="Remove">${ICON.x}</button>` : ''}<i class="fc-bar"></i></span>`);
+  $('.fc-n', c).textContent = f.name;
+  c.title = f.name;
+  if (onRemove) $('.fc-x', c).onclick = (e) => { e.stopPropagation(); onRemove(); };
+  c.onclick = () => { if (f.url) window.open(f.url, '_blank'); };
+  updateChip(c, f);
+  return c;
+}
+function updateChip(c, f) {
+  if (!c) return;
+  const up = f.status === 'uploading';
+  c.classList.toggle('up', up); c.classList.toggle('err', f.status === 'error'); c.classList.toggle('link', !!f.url);
+  $('.fc-n', c).textContent = f.name;
+  $('small', c).textContent = up ? `Uploading ${Math.round(f.pct)}%` : f.status === 'error' ? f.error : fmtSize(f.size);
+  $('.fc-bar', c).style.width = up ? f.pct + '%' : '0';
+}
+
+/* drop target helper: highlights on drag, hands real File objects to onFiles */
+function dropTarget(node, onFiles) {
+  let depth = 0;
+  node.addEventListener('dragenter', (e) => { e.preventDefault(); depth++; node.classList.add('drag'); });
+  node.addEventListener('dragover', (e) => e.preventDefault());
+  node.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; node.classList.remove('drag'); } });
+  node.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); depth = 0; node.classList.remove('drag'); onFiles([...e.dataTransfer.files]); });
+}
+
+/* uploads straight into an open project, shown as a message in its thread */
+function attachToProject(p, list) {
+  if (!list.length) return;
+  if (!threads[p.id]) threads[p.id] = buildThread(p);
+  const th = $('.thread-in', threads[p.id]);
+  const m = userMsg('<div class="files" style="margin:0"></div>');
+  const items = startUploads(p.id, list, (f) => updateChip(f.chip, f));
+  items.forEach((f) => { f.chip = fileChip(f); $('.files', m).appendChild(f.chip); });
+  th.appendChild(m); scrollDown(p.id);
+  Promise.all(items.map((f) => f.done)).then((res) => {
+    const ok = res.filter((f) => f.status === 'done').length, bad = res.filter((f) => f.status === 'error').length;
+    const msg = ok ? `<p>Saved ${ok} file${ok > 1 ? 's' : ''} to this project. You’ll find ${ok > 1 ? 'them' : 'it'} under <b>Files → Your uploads</b> in the side panel.${bad ? ` ${bad} couldn’t be uploaded, see the red ${bad > 1 ? 'chips' : 'chip'} above.` : ''}</p>` : '<p>Nothing was uploaded. See the red chips above for the reason.</p>';
+    th.appendChild(aiMsg(msg)); scrollDown(p.id);
+    if (state.view === 'project' && state.project === p.id && state.panelTab === 'files') renderPanel();
+  });
+}
 
 /* ---------------- drawings (SVG generators) ---------------- */
 function rand(seed) { let s = seed * 9301 + 49297; return () => ((s = (s * 9301 + 49297) % 233280) / 233280); }
@@ -225,22 +333,32 @@ function homeView() {
     <div class="grid" id="recent"></div>
   </div></div>`);
   const files = $('#homeFiles', v), input = $('#homeInput', v), send = $('#homeSend', v);
-  const sync = () => (send.disabled = !(input.value.trim() || state.attached.length));
-  const addFiles = () => {
-    const mock = [['PDF', 'AD7_Brief_Riverside_Library.pdf', '2.4 MB'], ['DWG', 'Site_survey.dwg', '840 KB'], ['IMG', 'Site_photos (12)', '18 MB']];
-    mock.slice(state.attached.length, state.attached.length + 3).forEach((f) => state.attached.push(f));
-    files.innerHTML = state.attached.map((f) => `<span class="file-chip"><span class="fi">${f[0]}</span><span>${f[1]}<small>${f[2]}</small></span></span>`).join('');
+  const sync = () => (send.disabled = state.attached.some((f) => f.status === 'uploading') || !(input.value.trim() || state.attached.some((f) => f.status === 'done')));
+  const remove = (f) => {
+    if (f.status === 'uploading') f.xhr.abort();
+    else if (f.status === 'done') deleteUpload(f).catch(() => toast('Couldn’t delete ' + f.name + ' from the server'));
+    state.attached = state.attached.filter((x) => x !== f); f.chip.remove(); sync();
+  };
+  const addFiles = (list) => {
+    if (!list.length) return;
+    state.draftId = state.draftId || 'p' + Date.now();
+    startUploads(state.draftId, list, (f) => { updateChip(f.chip, f); sync(); }).forEach((f) => {
+      f.chip = fileChip(f, () => remove(f));
+      state.attached.push(f); files.appendChild(f.chip);
+    });
     sync();
   };
-  $('#drop', v).onclick = addFiles; $('#attach', v).onclick = addFiles;
-  ['dragover', 'dragenter'].forEach((e) => $('#drop', v).addEventListener(e, (ev) => { ev.preventDefault(); ev.currentTarget.classList.add('drag'); }));
-  ['dragleave', 'drop'].forEach((e) => $('#drop', v).addEventListener(e, (ev) => { ev.preventDefault(); ev.currentTarget.classList.remove('drag'); if (e === 'drop') addFiles(); }));
-  input.oninput = sync;
+  state.attached.forEach((f) => files.appendChild(f.chip)); // keep chips when coming back to this screen
+  $('#drop', v).onclick = () => pickFiles(addFiles); $('#attach', v).onclick = () => pickFiles(addFiles);
+  dropTarget($('#drop', v), addFiles);
+  dropTarget($('.composer', v), addFiles);
+  input.oninput = sync; sync();
   $$('.chip', v).forEach((c) => (c.onclick = () => { c.classList.toggle('on'); }));
   const start = () => {
-    const id = 'p' + Date.now();
-    PROJECTS.unshift({ id, name: 'Riverside Public Library', group: 'Competitions', course: 'New', phase: 0, status: 'run', updated: 'Just now', tier: '—', theme: '—', demo: true, brief: input.value.trim(), files: [...state.attached] });
-    state.attached = [];
+    const id = state.draftId || 'p' + Date.now();
+    const uploaded = state.attached.filter((f) => f.status === 'done').map(({ project, name, size, url }) => ({ project, name, size, url }));
+    PROJECTS.unshift({ id, name: 'Riverside Public Library', group: 'Competitions', course: 'New', phase: 0, status: 'run', updated: 'Just now', tier: '—', theme: '—', demo: true, brief: input.value.trim(), files: uploaded });
+    state.attached = []; state.draftId = null;
     openProject(id);
   };
   send.onclick = start;
@@ -290,10 +408,18 @@ function libraryView() {
   const v = el(`<div class="view"><div class="page"><div class="page-h"><div><h2>Library</h2><p>Every output across projects: drawings, CAD, diagrams, renders and guides.</p></div></div>
     <div class="tabs">${['All', 'Drawings', 'CAD', 'Diagrams', 'Presentation', 'Defence pack'].map((t, i) => `<button class="tab ${i ? '' : 'on'}">${t}</button>`).join('')}</div>
     <div class="lib-row h"><span></span><span>Name</span><span>Project</span><span>Size</span><span></span></div>
+    <div class="lib-uploads"></div>
     ${FILES.map((f) => `<div class="lib-row"><span class="fi ${f[0]}" style="width:30px;height:30px;border-radius:7px;display:grid;place-items:center;font-size:9.5px;font-weight:600">${f[0].toUpperCase()}</span><span>${f[1]}<br/><small class="muted">${f[3]}</small></span><span class="muted">${f[2]}</span><span class="muted">${f[4]}</span><button class="icon-btn">${ICON.dl}</button></div>`).join('')}
   </div></div>`);
   $$('.tab', v).forEach((t) => (t.onclick = () => { $$('.tab', v).forEach((x) => x.classList.remove('on')); t.classList.add('on'); }));
   $$('.lib-row .icon-btn', v).forEach((b) => (b.onclick = () => toast('Download starts here once the backend is connected')));
+  listUploads().then((list) => list.forEach((f) => {
+    const k = fileKind(f.name), proj = PROJECTS.find((x) => x.id === f.project);
+    const row = el(`<div class="lib-row"><span class="fi ${k[1]}" style="width:30px;height:30px;border-radius:7px;display:grid;place-items:center;font-size:9.5px;font-weight:600">${k[0]}</span><span><a class="lib-link" href="${f.url}" target="_blank"></a><br/><small class="muted">Your upload · ${fmtDate(f.modified)}</small></span><span class="muted"></span><span class="muted">${fmtSize(f.size)}</span><a class="icon-btn" title="Download" href="${f.url}?download=1">${ICON.dl}</a></div>`);
+    $('.lib-link', row).textContent = f.name;
+    $$('span.muted', row)[0].textContent = proj ? proj.name : 'Earlier session';
+    $('.lib-uploads', v).appendChild(row);
+  })).catch(() => {});
   return [top, v];
 }
 
@@ -318,7 +444,7 @@ function projectView() {
   if (!threads[p.id]) threads[p.id] = buildThread(p);
   ws.appendChild(threads[p.id]);
   const dock = el(`<div class="dock"><div class="dock-in"><div class="composer"><textarea rows="1" placeholder="Reply, change something, or ask why…"></textarea>
-    <div class="composer-row"><button class="c-btn">${ICON.clip}</button><button class="c-btn">${ICON.layers} ${p.tier === '—' ? 'Detail: not set' : p.tier}</button><span class="sp"></span><button class="send" disabled>${ICON.send}</button></div></div>
+    <div class="composer-row"><button class="c-btn" data-attach title="Upload files to this project">${ICON.clip}</button><button class="c-btn">${ICON.layers} ${p.tier === '—' ? 'Detail: not set' : p.tier}</button><span class="sp"></span><button class="send" disabled>${ICON.send}</button></div></div>
     <div class="dock-hint">Every choice is saved to your decision log. You can change any of them later.</div></div></div>`);
   const ta = $('textarea', dock), sb = $('.send', dock);
   ta.oninput = () => { sb.disabled = !ta.value.trim(); ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'; };
@@ -334,6 +460,8 @@ function projectView() {
   };
   sb.onclick = sendMsg;
   ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } };
+  $('[data-attach]', dock).onclick = () => pickFiles((list) => attachToProject(p, list));
+  dropTarget(ws, (list) => attachToProject(p, list));
   ws.appendChild(dock);
   requestAnimationFrame(() => scrollDown(p.id));
   return [top, ws];
@@ -451,15 +579,17 @@ function buildWaiting(th, p) {
 /* full demo for a freshly created project */
 async function runDemo(p, th) {
   const step = (n) => { p.phase = n; refreshChrome(); };
-  const files = p.files && p.files.length ? p.files : [['PDF', 'Brief.pdf', '2.4 MB']];
-  th.appendChild(userMsg(`${p.brief ? esc(p.brief) + '<br/><br/>' : ''}<div class="files" style="margin:0">${files.map((f) => `<span class="file-chip"><span class="fi">${f[0]}</span><span>${f[1]}<small>${f[2]}</small></span></span>`).join('')}</div>`));
+  const files = p.files || [];
+  const um = userMsg(`${p.brief ? esc(p.brief) : ''}${p.brief && files.length ? '<br/><br/>' : ''}${files.length ? '<div class="files" style="margin:0"></div>' : ''}`);
+  files.forEach((f) => $('.files', um).appendChild(fileChip(f)));
+  th.appendChild(um);
   await wait(400);
   const a = aiMsg(''); th.appendChild(a);
   await new Promise((res) => $('.body', a).appendChild(task({
     title: 'Reading your brief', mode: 'thinking',
     workers: [['Brief', 'Typology, users, deliverables'], ['Site survey', 'Area, edges, levels'], ['Rules check', 'FAR, coverage, setbacks']],
     logs: ['Extracting required spaces…', 'Measuring plot from survey: 4,180 m²…', 'Brief says 4,200 m², close enough…', 'Listing deliverables: 6 A1 sheets + model…'],
-    doneText: 'Read 3 files · 2 gaps found', onDone: res,
+    doneText: `${files.length ? `Read ${files.length} file${files.length > 1 ? 's' : ''}` : 'Read your description'} · 2 gaps found`, onDone: res,
   })));
   const b = aiMsg(`<p>Here’s what I understood. Correct anything that’s wrong.</p>
     <div class="facts"><div><small>Project</small>Public library, 2,400 m² built-up</div><div><small>Site</small>4,180 m², river on north edge</div><div><small>Users</small>Students, families, elderly readers</div><div><small>Limits</small>FAR 1.5 · coverage 40% · 15 m</div><div><small>Deliverables</small>6 A1 sheets + physical model</div><div><small>Missing</small>Parking count, any mandated material</div></div>`);
@@ -550,14 +680,38 @@ function renderPanel() {
     }).join('')}</div>`;
   } else if (state.panelTab === 'files') {
     const out = p.phase >= 9 ? [['pdf', 'A101 Ground floor plan', 'Presentation PDF'], ['dxf', 'A101 Ground floor plan', 'Layers + blocks'], ['pdf', 'A201 Section A–A', '1:100'], ['img', 'Exploded floor axo', 'PNG · 4K']] : [];
-    body.innerHTML = `<div class="sec-h">Outputs</div>${out.length ? out.map((f) => `<div class="file-row"><span class="fi ${f[0]}">${f[0].toUpperCase()}</span><span class="fn">${f[1]}<small>${f[2]}</small></span>${ICON.dl}</div>`).join('') : '<p class="muted" style="margin:4px">Nothing yet. Outputs appear here as each phase finishes.</p>'}
+    body.innerHTML = `<div class="sec-h sec-row"><span>Your uploads</span><button class="btn sm" data-up>${ICON.up} Upload</button></div><div class="up-list"><p class="muted" style="margin:4px">Loading…</p></div>
+      <div class="sec-h">Outputs</div>${out.length ? out.map((f) => `<div class="file-row"><span class="fi ${f[0]}">${f[0].toUpperCase()}</span><span class="fn">${f[1]}<small>${f[2]}</small></span>${ICON.dl}</div>`).join('') : '<p class="muted" style="margin:4px">Nothing yet. Outputs appear here as each phase finishes.</p>'}
       <div class="sec-h">Working files</div>
       ${[['md', 'Fact sheet', 'Brief'], ['md', 'Design DNA', 'Your choices'], ['md', 'Decision log', `${p.phase * 2 + 3} entries`], ['md', 'Research', '5 files']].map((f) => `<div class="file-row"><span class="fi ${f[0]}">${f[0].toUpperCase()}</span><span class="fn">${f[1]}<small>${f[2]}</small></span></div>`).join('')}`;
+    $('[data-up]', body).onclick = () => pickFiles((list) => attachToProject(p, list));
+    fillUploads($('.up-list', body), p.id);
   } else {
     body.innerHTML = `<div class="sheet">${sheetSVG()}</div><div class="preview-meta"><span>A101 · Ground floor plan</span><span class="ver"><button>v1</button><button class="on">v2</button></span></div>
       <div class="sec-h">Form evolution</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${['ring', 'woven', 'wing', 'ring'].map((m) => `<div class="evo">${massSVG(m)}</div>`).join('')}</div>`;
     $$('.ver button', body).forEach((b) => (b.onclick = () => { $$('.ver button', body).forEach((x) => x.classList.remove('on')); b.classList.add('on'); }));
   }
+}
+
+/* real uploaded files as rows: open on click, download, remove */
+async function fillUploads(box, projectId) {
+  let list;
+  try { list = await listUploads(projectId); } catch { box.innerHTML = '<p class="muted" style="margin:4px">Upload server isn’t running. Start the app with <b>python server.py</b>.</p>'; return; }
+  if (!list.length) { box.innerHTML = '<p class="muted" style="margin:4px">No files yet. Drop files anywhere on this project, or use Upload.</p>'; return; }
+  box.innerHTML = '';
+  list.forEach((f) => {
+    const k = fileKind(f.name);
+    const row = el(`<div class="file-row" title="Open"><span class="fi ${k[1]}">${k[0]}</span><span class="fn"><span class="fc-n"></span><small>${fmtSize(f.size)} · ${fmtDate(f.modified)}</small></span><a class="icon-btn" title="Download" href="${f.url}?download=1">${ICON.dl}</a><button class="icon-btn" title="Remove">${ICON.x}</button></div>`);
+    $('.fc-n', row).textContent = f.name;
+    row.onclick = () => window.open(f.url, '_blank');
+    $('a', row).onclick = (e) => e.stopPropagation();
+    $('button', row).onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Remove ${f.name} from this project? The file is deleted from the uploads folder.`)) return;
+      try { await deleteUpload(f); row.remove(); if (!box.children.length) fillUploads(box, projectId); } catch { toast('Couldn’t remove ' + f.name); }
+    };
+    box.appendChild(row);
+  });
 }
 
 /* ---------------- misc ---------------- */
@@ -566,5 +720,6 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.ad
 $$('[data-nav]').forEach((b) => (b.onclick = () => go(b.dataset.nav)));
 $('#collapseBtn').onclick = () => $('#app').classList.toggle('sb-collapsed');
 $('#searchInput').oninput = renderSidebar;
+['dragover', 'drop'].forEach((t) => window.addEventListener(t, (e) => e.preventDefault())); // a missed drop shouldn't navigate away
 document.addEventListener('keydown', (e) => { if (e.ctrlKey && e.key.toLowerCase() === 'n') { e.preventDefault(); go('home'); } });
 render();

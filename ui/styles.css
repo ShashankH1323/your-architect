@@ -153,6 +153,19 @@ kbd { font: 11px Inter, sans-serif; color: var(--muted); border: 1px solid var(-
 .file-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 12.5px; animation: pop .3s var(--ease); }
 .file-chip .fi { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; background: #2a1d17; color: var(--accent); font-size: 9px; font-weight: 600; }
 .file-chip small { color: var(--muted); display: block; font-size: 11px; line-height: 1.1; }
+.file-chip { position: relative; overflow: hidden; max-width: 280px; }
+.file-chip.link { cursor: pointer; }
+.file-chip.link:hover { border-color: var(--border-strong); }
+.file-chip .fc-t { min-width: 0; }
+.file-chip .fc-n { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-chip .fc-x { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; color: var(--muted); margin-left: 2px; flex: none; }
+.file-chip .fc-x:hover { background: var(--surface-3); color: var(--text); }
+.file-chip .fc-x svg { width: 13px; height: 13px; }
+.file-chip .fc-bar { position: absolute; left: 0; bottom: 0; height: 2px; width: 0; background: var(--accent); transition: width .2s; }
+.file-chip.err { border-color: rgba(224, 108, 108, .5); }
+.file-chip.err small { color: #e06c6c; }
+.composer.drag { border-color: var(--accent); background: var(--accent-soft); }
+.ws.drag .thread { outline: 1px dashed var(--accent); outline-offset: -10px; border-radius: 16px; background: var(--accent-soft); }
 
 /* ---------- projects grid ---------- */
 .page { max-width: 1120px; margin: 0 auto; padding: 28px 28px 60px; }
@@ -298,6 +311,14 @@ kbd { font: 11px Inter, sans-serif; color: var(--muted); border: 1px solid var(-
 .file-row .fn small { display: block; color: var(--muted); font-size: 11.5px; }
 .sec-h { font-size: 12px; color: var(--muted); margin: 14px 4px 6px; }
 .sec-h:first-child { margin-top: 0; }
+.sec-row { display: flex; align-items: center; justify-content: space-between; }
+.btn.sm { padding: 4px 9px; font-size: 12px; gap: 5px; }
+.btn.sm svg { width: 14px; height: 14px; }
+.file-row .icon-btn { width: 28px; height: 28px; flex: none; }
+.file-row .icon-btn svg { width: 15px; height: 15px; }
+.file-row .fn > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-link { color: inherit; text-decoration: none; }
+.lib-link:hover { text-decoration: underline; }
 
 .sheet { background: #f4f2ee; border-radius: 6px; aspect-ratio: 1.414; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
 .sheet svg { width: 100%; height: 100%; }

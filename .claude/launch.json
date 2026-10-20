@@ -4,7 +4,7 @@
     {
       "name": "ui",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "5173", "--directory", "ui"],
+      "runtimeArgs": ["server.py"],
       "port": 5173
     }
   ]
